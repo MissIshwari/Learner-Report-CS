@@ -1,0 +1,26 @@
+deployments:
+  frontend: frontend-deployment
+  backend:  backend-deployment
+  db: mongodb-deployment
+
+services:
+  frontend: frontend-svc
+  backend:  backend-svc
+  db: mongodb-svc
+
+images:
+  frontend:
+    image:  misscoder21/learner-report-frontend
+    port: 3000
+    tag:  v1
+
+  backend:
+    image:  misscoder21/learner-report-backend
+    port: 3001
+    tag:  v1
+
+  db:
+    image:  mongo
+    port: 27017
+    tag:  latest
+    

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.deployments.db }}
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: {{ .Values.deployments.db }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.deployments.db }}
+    spec:
+      containers:
+      - name: {{ .Values.deployments.db }}
+        image: "{{ .Values.images.db.image }}:{{ .Values.images.db.tag }}"
+        ports:
+        - containerPort: {{ .Values.images.db.port }}
+        # resources:
+        #   limits:
+        #     cpu: 500m
+        #     memory: 512Mi
+
