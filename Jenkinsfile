@@ -1,87 +1,98 @@
 pipeline{
     agent any
     environment{
-        ECR_FRONTEND="515210271098.dkr.ecr.eu-west-2.amazonaws.com/sample-mernapp-frontend"
-        ECR_BACKEND="515210271098.dkr.ecr.eu-west-2.amazonaws.com/sample-mern-hello-svc"
-        ECR_BACKEND_PROFILE_SERVICE="515210271098.dkr.ecr.eu-west-2.amazonaws.com/sample-mernapp-profile-svc"
-        CODECOMMIT_BRANCH='main'
-        CODECOMMIT_URL='https://git-codecommit.eu-west-2.amazonaws.com/v1/repos/sample-mern-app'
-        CODECOMMIT_CREDENTIALS='aws-code-commit-credentials'
-        AWS_KEYS='access-keys'
+        DOCKER_FRONTEND="misscoder21/learner-report-frontend"
+        DOCKER_BACKEND="misscoder21/learner-report-backend"
+        GIT_BRANCH="main"
+        GIT_URL="https://github.com/MissIshwari/Learner-Report-CS"
+        // AWS_KEYS=credentials('access-keys')
+        DOCKER_HUB_KEY = credentials('ishwari-docker-hub')
+        //creating a dockerhub credentials in jenkins for github private credentials
     }
     stages{
         stage('checkout code'){
+            
             steps{
-                git branch: env.CODECOMMIT_BRANCH, url: env.CODECOMMIT_URL, credentialsId: env.CODECOMMIT_CREDENTIALS
-            }
-        }
-        stage("Creating .env file for services"){
-            steps{
-                script{
-                    def port_list=[3001,3002]
-                    def envContent="""
-                    MONGO_URL="mongodb+srv://Ishwari:Ishwari@cluster1.2x5egls.mongodb.net/"
-                    PORT=3002
-                    """
-                    writeFile(file: './backend/helloService/.env', text: envContent.trim())
-                    writeFile(file: './backend/profileService/.env', text: envContent.trim())
-                }
+                git branch: env.GIT_BRANCH, url: env.GIT_URL
             }
         }
         
         stage("Build frontend docker image"){
             steps{
                 script{
-                    docker.build("${env.ECR_FRONTEND}:${env.BUILD_ID}", './frontend/')
+                    docker.build("${env.DOCKER_FRONTEND}:${env.BUILD_ID}", './learnerReportCS_frontend/')
                 }
             }
             post{
                 always{
                     script{
-                        docker.withRegistry(${env.ECR_FRONTEND}, ${env.AWS_KEYS}) {
-                            
-                            docker.image("${env.ECR_FRONTEND}:${env.BUILD_ID}").push()
+                         withCredentials([usernamePassword(credentialsId: 'ishwari-docker-hub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh "echo -n ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin"
+                    }
+                    withCredentials([usernamePassword(credentialsId: 'ishwari-docker-hub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        docker.withRegistry('https://index.docker.io/v1/', 'ishwari-docker-hub') {
+                            docker.image("${env.DOCKER_FRONTEND}:${env.BUILD_ID}").push()
+                            // docker.image("${env.DOCKER_FRONTEND}:${env.BUILD_ID}").push()
                         }
+                    }
                     }
                 }
                 
             }
 
         }
-        stage("Build helloService docker image"){
+        stage("Build backend docker image"){
             steps{
                 script{
-                    docker.build("${env.ECR_BACKEND_HELLO_SERVICE}:${env.BUILD_ID}", './backend/helloService/')
+                    docker.build("${env.ECR_BACKEND_HELLO_SERVICE}:${env.BUILD_ID}", './learnerReportCS_backend/')
                 }
             }
             post{
                 always{
                     script{
-                        docker.withRegistry(${env.ECR_BACKEND_HELLO_SERVICE}, ${env.AWS_KEYS}) {
-                            
-                            docker.image("${env.ECR_BACKEND_HELLO_SERVICE}:${env.BUILD_ID}").push()
+                         withCredentials([usernamePassword(credentialsId: 'ishwari-docker-hub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh "echo -n ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USERNAME} --password-stdin"
+                    }
+                    withCredentials([usernamePassword(credentialsId: 'ishwari-docker-hub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        docker.withRegistry('https://index.docker.io/v1/', 'ishwari-docker-hub') {
+                            docker.image("${env.DOCKER_BACKEND}:${env.BUILD_ID}").push()
+                            // docker.image("${env.DOCKER_IMAGE_RESUME_BUILDER_FRONTEND}:${env.BUILD_ID}").push()
                         }
+                    }
                     }
                 }
                 
             }
         }
-        stage("Build profileService docker image"){
+        stage("Connect to EKS"){
             steps{
                 script{
-                    docker.build("${env.ECR_BACKEND_PROFILE_SERVICE}:${env.BUILD_ID}", './backend/profileService/')
-                }
-            }
-            post{
-                always{
-                    script{
-                        docker.withRegistry(${env.ECR_BACKEND_PROFILE_SERVICE}, ${env.AWS_KEYS}) {
-                            
-                            docker.image("${env.ECR_BACKEND_PROFILE_SERVICE}:${env.BUILD_ID}").push()
+                    withCredentials([aws(credentialsId: 'ishwari-aws-key', region:'eu-west-2')]) {
+                        
+                        def eksClusterExists = sh(script: 'aws eks describe-cluster --name ishwari-eks-cluster-1 --region eu-west-2', 
+                        returnStatus: true) == 0
+                        if(!eksClusterExists){
+                            sh '''
+                            eksctl create cluster --name ishwari-eks-cluster-1 --region eu-west-2 --nodegroup-name standard-workers --node-type t3.micro --nodes 2 --nodes-min 1 --nodes-max 3
+                            '''
                         }
                     }
                 }
-                
+            }
+        }
+        stage('Update the EKS cluster') {
+            steps {
+                script {
+                    def clusterStatus = sh(script: "eksctl get cluster --name LearnerReportCSclusterNEW --region ap-south-1", returnStatus: true)
+                    if (clusterStatus != 0) {
+                        echo "Cluster does not exist, creating one."
+                        sh "eksctl create cluster --name LearnerReportCSclusterNEW --region ap-south-1"
+                    } else {
+                        echo "Cluster exists, moving on with deployment."
+                    }
+                    sh "aws eks update-kubeconfig --name LearnerReportCSclusterNEW --region ap-south-1"
+                    sh "helm upgrade --install learnreportcs LearnerReportCS-helm"
+                }
             }
         }
        
